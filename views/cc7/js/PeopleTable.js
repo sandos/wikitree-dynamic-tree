@@ -1,13 +1,17 @@
 import { HierarchyView } from "./HierarchyView.js";
 import { LanceView } from "./LanceView.js";
+import { MissingLinksView } from "./MissingLinksView.js";
+import { StatsView } from "./StatsView.js";
 import { Settings } from "./Settings.js";
-import { CC7Utils } from "./Utils.js";
+import { CC7Utils } from "./CC7Utils.js";
 import { Utils } from "../../shared/Utils.js";
 import { CC7 } from "./cc7.js";
 
 export class PeopleTable {
     static EXCEL = "xlsx";
     static CSV = "csv";
+    static PARAMS;
+    static ACTIVE_VIEW = "table";
 
     // From https://github.com/wikitree/wikitree-api/blob/main/getProfile.md :
     // Privacy_IsPrivate            True if Privacy = 20
@@ -31,7 +35,7 @@ export class PeopleTable {
         $("#savePeople").show();
         // Set root person if it is not already set
         if (window.rootPerson) {
-            if (window.rootPerson?.Name != $("#wt-id-text").val()) {
+            if (window.rootPerson?.Name != Utils.getTreeAppWtId()) {
                 window.rootPerson = false;
             }
         }
@@ -62,7 +66,7 @@ export class PeopleTable {
         const subset = $("#cc7Subset").val() || "all";
 
         const aTable = $(
-            `<table id='peopleTable' class='peopleTable ${subset}'>` +
+            `<table id='peopleTable' class='subsetable peopleTable ${subset}'>` +
                 aCaption +
                 `<thead><tr><th title='Privacy${bioCheck ? "/BioCheck" : ""}'>P${
                     bioCheck ? "/B" : ""
@@ -77,9 +81,13 @@ export class PeopleTable {
                 `<th data-order='' id='lnab' ${sortTitle}>Last Name at Birth</th>` +
                 `<th data-order='' id='lnc' ${sortTitle}>Current Last Name</th>` +
                 `<th data-order='' id='birthdate' ${sortTitle}>Birth Date</th>` +
-                `<th data-order='' id='birthlocation' ${sortTitle}>Birth Place</th>` +
+                `<th data-order='' id="birthlocation" data-flow="f2b" >` +
+                `<span class="sortColumn" ${sortTitle}>Birth Place</span>` +
+                `<span class="reverseWords" style="cursor: pointer; transform: scale(1.5); display: inline-block; margin-left: 10px;" title="Click to reverse the location names"> ↻</span></th>` +
                 `<th data-order='' id='deathdate' ${sortTitle}>Death Date</th>` +
-                `<th data-order='' id='deathlocation' ${sortTitle}>Death Place</th>` +
+                `<th data-order='' id="deathlocation" data-flow="f2b" >` +
+                `<span class="sortColumn" ${sortTitle}>Death Place</span>` +
+                `<span class="reverseWords" style="cursor: pointer; transform: scale(1.5); display: inline-block; margin-left: 10px;" title="Click to reverse the location names"> ↻</span></th>` +
                 ageAtDeathCol +
                 `<th data-order='' id='manager' ${sortTitle}>Manager</th>` +
                 createdTH +
@@ -119,74 +127,12 @@ export class PeopleTable {
             const mPerson = window.people.get(id);
             if (mPerson.Hide) continue;
 
-            const completeCondition =
-                !isMissingFamily(mPerson) &&
-                mPerson.Father &&
-                mPerson.Mother &&
-                mPerson.DeathDate &&
-                mPerson.DeathLocation &&
-                mPerson.BirthDate &&
-                mPerson.BirthLocation &&
-                mPerson.NoChildren == 1 &&
-                mPerson.DataStatus.Spouse == "blank";
+            const completeCondition = CC7Utils.isProfileComplete(mPerson);
             if (completeCondition) {
                 complete++;
             }
-            // Filter by the selected subset
-            switch (subset) {
-                case "above":
-                    if (!mPerson.isAbove) continue; // hide
-                    break;
-
-                case "below":
-                    if (mPerson.isAbove) continue; // hide
-                    break;
-
-                case "ancestors":
-                    if (mPerson.isAncestor) break; // show
-                    continue;
-
-                case "descendants":
-                    if (typeof mPerson.isAncestor != "undefined" && !mPerson.isAncestor) break; // show
-                    continue;
-
-                case "missing-links":
-                    if (isMissingFamily(mPerson)) break; // show
-                    continue; // else hide
-
-                case "complete":
-                    if (completeCondition) break; // show
-                    continue; // else hide
-
-                default:
-                    break;
-            }
-
-            function isMissingFamily(person) {
-                if (person.LastNameAtBirth == "Private") return false;
-                let val = false;
-                if (Settings.current["missingFamily_options_noNoChildren"]) {
-                    // no more children flag is not set
-                    val = person.NoChildren != 1;
-                }
-                if (!val && Settings.current["missingFamily_options_noNoSpouses"]) {
-                    // no more spouses flag is not set
-                    val = person.DataStatus.Spouse != "blank";
-                }
-                if (!val && Settings.current["missingFamily_options_noParents"]) {
-                    // no father or mother
-                    val = !person.Father && !person.Mother;
-                }
-                if (!val && Settings.current["missingFamily_options_noChildren"]) {
-                    // no more children flag is not set and they don't have any children
-                    val = person.NoChildren != 1 && (!person.Child || person.Child.length == 0);
-                }
-                if (!val && Settings.current["missingFamily_options_oneParent"]) {
-                    // at least one parent missing
-                    val = (person.Father && !person.Mother) || (!person.Father && person.Mother);
-                }
-                return val;
-            }
+            // Ignore profiles not in the selected subset
+            if (!CC7Utils.profileIsInSubset(mPerson, subset)) continue;
 
             let deathDate = CC7Utils.ymdFix(mPerson.DeathDate);
             if (deathDate == "") {
@@ -243,7 +189,7 @@ export class PeopleTable {
             let dBirthDate;
             if (mPerson.BirthDate) {
                 dBirthDate = mPerson.BirthDate.replaceAll("-", "");
-            } else if (mPerson.BirthDateDecade) {
+            } else if (mPerson.BirthDateDecade && mPerson.BirthDateDecade != "unknown") {
                 dBirthDate = PeopleTable.getApproxDate2(mPerson.BirthDateDecade).Date.replace("-", "").padEnd(8, "0");
             } else {
                 dBirthDate = "00000000";
@@ -252,7 +198,7 @@ export class PeopleTable {
             let dDeathDate;
             if (mPerson.DeathDate) {
                 dDeathDate = mPerson.DeathDate.replaceAll("-", "");
-            } else if (mPerson.DeathDateDecade) {
+            } else if (mPerson.DeathDateDecade && mPerson.DeathDateDecade != "unknown") {
                 dDeathDate = PeopleTable.getApproxDate2(mPerson.DeathDateDecade).Date.replace("-", "").padEnd(8, "0");
             } else {
                 dDeathDate = "00000000";
@@ -320,11 +266,11 @@ export class PeopleTable {
 
             if ($("#cc7Container").length) {
                 degreeCell = "<td class='degree'>" + mPerson.Meta.Degrees + "°</td>";
-                relationCell = `<td class='relation' title="${mPerson?.Relationship?.full || ""}">${
-                    mPerson?.Relationship?.abbr || ""
+                relationCell = `<td class='relation' title="${mPerson.Relationship?.full || ""}">${
+                    mPerson.Relationship?.abbr || ""
                 }</td>`;
                 ddegree = "data-degree='" + mPerson.Meta.Degrees + "'";
-                drelation = "data-relation=''";
+                drelation = `data-relation="${mPerson.Relationship?.abbr || ""}"`;
                 if (mPerson.Created) {
                     created =
                         "<td class='created aDate'>" +
@@ -335,28 +281,41 @@ export class PeopleTable {
                     created = "<td class='created aDate'></td>";
                 }
 
-                let mAgeAtDeath = CC7Utils.ageAtDeath(mPerson);
-                let mAgeAtDeathNum = CC7Utils.ageAtDeath(mPerson, false);
+                let [ageAtDeath, annotation, annotatedAgeAtDeath] = CC7Utils.ageAtDeath(mPerson);
 
-                if (mAgeAtDeath === false && mAgeAtDeath !== "0") {
-                    mAgeAtDeath = "";
-                }
-                if (mAgeAtDeathNum < 0) {
-                    mAgeAtDeath = 0;
-                }
-                if (mAgeAtDeathNum < 5 && (mAgeAtDeath != false || mAgeAtDeathNum === 0)) {
-                    diedYoung = true;
-                    diedVeryYoung = true;
-                    diedYoungIcon = Settings.current["icons_options_veryYoung"];
-                    diedYoungTitle = "Died before age 5";
-                } else if (mAgeAtDeathNum < 16 && mAgeAtDeath != false) {
-                    diedYoung = true;
-                    diedYoungIcon = Settings.current["icons_options_young"];
-                    diedYoungTitle = "Died before age 16";
+                if (ageAtDeath === "") {
+                    ageAtDeath = -1;
+                } else {
+                    switch (annotation) {
+                        case "<":
+                            ageAtDeath -= 0.1;
+                            break;
+
+                        case "~":
+                            ageAtDeath += 0.1;
+                            break;
+
+                        case ">":
+                            ageAtDeath += 0.2;
+                            break;
+
+                        default:
+                            break;
+                    }
+                    if (ageAtDeath < 5) {
+                        diedYoung = true;
+                        diedVeryYoung = true;
+                        diedYoungIcon = Settings.current["icons_options_veryYoung"];
+                        diedYoungTitle = "Died before age 5";
+                    } else if (ageAtDeath < 16) {
+                        diedYoung = true;
+                        diedYoungIcon = Settings.current["icons_options_young"];
+                        diedYoungTitle = "Died before age 16";
+                    }
                 }
 
-                ageAtDeathCell = "<td class='age-at-death'>" + mAgeAtDeath + "</td>";
-                dAgeAtDeath = "data-age-at-death='" + mAgeAtDeathNum + "'";
+                ageAtDeathCell = "<td class='age-at-death'>" + annotatedAgeAtDeath + "</td>";
+                dAgeAtDeath = "data-age-at-death='" + ageAtDeath + "'";
 
                 if (mPerson.Touched) {
                     touched =
@@ -552,31 +511,56 @@ export class PeopleTable {
             CC7Utils.setOverflow("auto");
         }
 
-        $("#cc7Container").on("click", "img.privacyImage, .bioIssue", function (event) {
-            event.stopImmediatePropagation();
-            const id = $(this).closest("tr").attr("data-id");
-            const p = window.people.get(+id);
-            if (event.altKey) {
-                // Provide a way to examine the data record of a specific person
-                console.log(`${p.Name}, ${p.BirthNamePrivate}`, p);
-            } else if (p.hasBioIssues) {
-                PeopleTable.showBioCheckReport($(this));
-            }
-        });
+        $("#cc7Container")
+            .off("click", "img.privacyImage, .bioIssue")
+            .on("click", "img.privacyImage, .bioIssue", function (event) {
+                event.stopImmediatePropagation();
+                const id = $(this).closest("tr").attr("data-id");
+                const p = window.people.get(+id);
+                if (event.altKey) {
+                    // Provide a way to examine the data record of a specific person
+                    console.log(`${p.Name}, ${p.BirthNamePrivate}`, p);
+                } else if (p.hasBioIssues) {
+                    PeopleTable.showBioCheckReport($(this));
+                }
+            });
 
-        $("#cc7Container").on("click", "img.familyHome", function () {
-            PeopleTable.showFamilySheet($(this));
-        });
+        $("#cc7Container")
+            .off("click", "img.familyHome")
+            .on("click", "img.familyHome", function () {
+                PeopleTable.showFamilySheet($(this));
+            });
 
-        $("#cc7Container").on("click", "img.timelineButton", function () {
-            PeopleTable.showTimeline($(this));
-        });
+        $("#cc7Container")
+            .off("click", "img.timelineButton")
+            .on("click", "img.timelineButton", function () {
+                PeopleTable.showTimeline($(this));
+            });
 
-        $("#cc7Container").on("click", "th[id]", function () {
-            PeopleTable.sortByThis($(this));
-        });
+        $("#cc7Container")
+            .off("click", "th[id]")
+            .on("click", "th[id]", function () {
+                const el = $(this);
+                const id = el.attr("id");
+                if (id !== "birthlocation" && id !== "deathlocation") {
+                    PeopleTable.sortByThis(el);
+                }
+            });
+        $("#cc7Container")
+            .off("click", "th span.sortColumn")
+            .on("click", "th span.sortColumn", function () {
+                var el = $(this).closest("th");
+                PeopleTable.sortByThis(el);
+            });
+
+        $("#cc7Container")
+            .off("click", "th span.reverseWords")
+            .on("click", "th span.reverseWords", function () {
+                PeopleTable.reverseWordOrder($(this));
+            });
 
         PeopleTable.addWideTableButton();
+
         if ($("#hierarchyViewButton").length == 0) {
             $("#wideTableButton").before(
                 $(
@@ -593,18 +577,22 @@ export class PeopleTable {
                         "</select>" +
                         "<button class='button small viewButton' id='hierarchyViewButton'>Hierarchy</button>" +
                         "<button class='button small viewButton' id='listViewButton'>List</button>" +
-                        "<button class='button small viewButton active' id='tableViewButton'>Table</button>"
+                        "<button class='button small viewButton active' id='tableViewButton'>Table</button>" +
+                        "<button class='button small viewButton' id='statsViewButton'>Stats</button>" +
+                        "<button class='button small viewButton' id='missingLinksViewButton'>Missing Links</button>"
                 )
             );
         }
         $("#cc7Subset")
             .off("change")
             .on("change", function () {
-                const curTableId = $("table.active").attr("id");
+                const curTableId = $(".subsetable.active").attr("id");
                 if (curTableId == "lanceTable") {
                     LanceView.build();
                 } else if (curTableId == "peopleTable") {
                     drawPeopleTable();
+                } else if (curTableId == "statsView") {
+                    StatsView.build();
                 }
                 if ($("#cc7Subset").val() == "missing-links") {
                     PeopleTable.showMissingLinksCheckboxes();
@@ -614,45 +602,25 @@ export class PeopleTable {
             });
 
         function drawPeopleTable() {
-            const subset = $("#cc7Subset").val();
-            let subsetWord = "";
-            switch (subset) {
-                case "ancestors":
-                    subsetWord = " (Ancestors Only)";
-                    break;
-                case "descendants":
-                    subsetWord = " (Descendants Only)";
-                    break;
-                case "above":
-                    subsetWord = ' ("Above" Only)';
-                    break;
-                case "below":
-                    subsetWord = ' ("Below" Only)';
-                    break;
-                case "missing-links":
-                    subsetWord = " (Missing Family)";
-                    break;
-                case "complete":
-                    subsetWord = " (Complete)";
-                    break;
-                default:
-                    break;
-            }
-            PeopleTable.addPeopleTable(PeopleTable.tableCaption() + subsetWord);
+            PeopleTable.addPeopleTable(CC7Utils.tableCaptionWithSubset());
         }
 
         $("#listViewButton")
             .off("click")
             .on("click", function () {
+                PeopleTable.resetHeader();
+                PeopleTable.ACTIVE_VIEW = "list";
                 $(".viewButton").removeClass("active");
                 $(this).addClass("active");
-                $("#peopleTable,#hierarchyView").hide();
+                $("#peopleTable, #hierarchyView, #statsView, #missingLinksTable").hide();
                 if ($("#lanceTable").length == 0 || !$("#lanceTable").hasClass($("#cc7Subset").val())) {
                     LanceView.build();
                 } else {
                     $("#lanceTable").show().addClass("active");
                     $("#wideTableButton").hide();
                 }
+                $("#cc7Subset option[value='missing-links']").prop("disabled", false);
+                $("#cc7Subset option[value='complete']").prop("disabled", false);
                 $("#cc7Subset").show();
                 if ($("#cc7Subset").val() == "missing-links") {
                     PeopleTable.showMissingLinksCheckboxes();
@@ -665,9 +633,11 @@ export class PeopleTable {
                     // We don't have a root, so we can't do anything
                     return;
                 }
+                PeopleTable.resetHeader();
+                PeopleTable.ACTIVE_VIEW = "hierarchy";
                 $(".viewButton").removeClass("active");
                 $(this).addClass("active");
-                $("#peopleTable,#lanceTable").hide().removeClass("active");
+                $("#peopleTable, #lanceTable, #statsView, #missingLinksTable").hide().removeClass("active");
                 if ($("#hierarchyView").length == 0) {
                     Utils.showShakingTree(CC7Utils.CC7_CONTAINER_ID, function () {
                         // We only call HierarchyView.buildView after a timeout in order to give the shaking tree
@@ -684,9 +654,13 @@ export class PeopleTable {
         $("#tableViewButton")
             .off("click")
             .on("click", function () {
+                PeopleTable.resetHeader();
+                PeopleTable.ACTIVE_VIEW = "table";
                 $(".viewButton").removeClass("active");
                 $(this).addClass("active");
-                $("#hierarchyView, #lanceTable").hide().removeClass("active");
+                $("#hierarchyView, #lanceTable, #statsView, #missingLinksTable").hide().removeClass("active");
+                $("#cc7Subset option[value='missing-links']").prop("disabled", false);
+                $("#cc7Subset option[value='complete']").prop("disabled", false);
                 $("#cc7Subset").show();
                 if ($("#peopleTable").hasClass($("#cc7Subset").val())) {
                     // We don't have to re-draw the table
@@ -698,6 +672,57 @@ export class PeopleTable {
                 if ($("#cc7Subset").val() == "missing-links") {
                     PeopleTable.showMissingLinksCheckboxes();
                 }
+            });
+        $("#statsViewButton")
+            .off("click")
+            .on("click", function () {
+                PeopleTable.resetHeader();
+                PeopleTable.ACTIVE_VIEW = "stats";
+                $(".viewButton").removeClass("active");
+                $(this).addClass("active");
+                $("#hierarchyView, #lanceTable, #peopleTable, #missingLinksTable").hide().removeClass("active");
+                $("#cc7Subset").show();
+                if ($("#statsView").hasClass($("#cc7Subset").val())) {
+                    // We don't have to re-draw the table
+                    $("#statsView").show().addClass("active");
+                    $("#wideTableButton").show();
+                } else {
+                    StatsView.build();
+                }
+            });
+
+        $("#missingLinksViewButton")
+            .off("click")
+            .on("click", function () {
+                $(".viewButton").removeClass("active");
+                $(this).addClass("active");
+                $("#hierarchyView, #lanceTable, #peopleTable, #statsView").hide().removeClass("active");
+                $("#cc7Subset").show();
+                //if ($("#missingLinksTable").hasClass($("#cc7Subset").val())) {
+                if ($("#missingLinksTable").length > 0) {
+                    // We don't have to re-draw the table
+                    $("#missingLinksTable").show().addClass("active");
+                } else {
+                    MissingLinksView.buildView();
+                }
+                // switch to missing links checkboxes
+                $("#cc7Subset").val("missing-links");
+                //PeopleTable.showMissingLinksCheckboxes();
+
+                PeopleTable.ACTIVE_VIEW = "ml";
+
+                // hide top menu stuff
+                $("#degreesTable").hide();
+                $("#wideTableButton").hide();
+                $("#savePeople").hide();
+                $("#loadButton").hide();
+                $("#cc7csv").hide();
+                $("#cc7excel").hide();
+                $("#getExtraDegrees").hide();
+                $("#getDegreeButton").hide();
+                $("#cc7Subset").hide();
+                $("#ancReport").hide();
+                $("label[for='getExtraDegrees']").hide();
             });
 
         if (!window.people.get(window.rootId)) {
@@ -735,6 +760,13 @@ export class PeopleTable {
         $("#lanceTable").removeClass("active");
         aTable.addClass("active");
         aTable.floatingScroll();
+
+        // check the parameters to see which view should be shown
+        $(document).ready(function () {
+            if (PeopleTable.ACTIVE_VIEW == "ml") {
+                $("#missingLinksViewButton").click();
+            }
+        });
     }
 
     static location2ways(locationText) {
@@ -745,84 +777,76 @@ export class PeopleTable {
         return [s2b, b2s];
     }
 
-    static fillLocations(rows, order) {
+    static fillLocations(rows, colClass, order) {
         rows.each(function () {
             $(this)
-                .find("td.birthlocation")
-                .text($(this).attr("data-birthlocation" + order));
-            $(this)
-                .find("td.deathlocation")
-                .text($(this).attr("data-deathlocation" + order));
+                .find(`td.${colClass}`)
+                .text($(this).attr(`data-${colClass}${order}`));
         });
         return rows;
     }
 
+    static reverseWordOrder(el) {
+        const th = el.closest("th");
+        const flow = th.attr("data-flow");
+        const newFlow = flow == "f2b" ? "b2f" : "f2b";
+        th.attr("data-flow", newFlow);
+        const col = th.attr("id");
+
+        const aTable = $("#peopleTable");
+        let rows = aTable.find("tbody tr");
+        PeopleTable.fillLocations(rows, col, newFlow == "b2f" ? "-reversed" : "");
+    }
+
     static sortByThis(el) {
+        const collator = new Intl.Collator();
         const aTable = $("#peopleTable");
 
-        let sorter = el.attr("id");
+        let sortFieldName = el.attr("id");
         let rows = aTable.find("tbody tr");
-        if (sorter == "birthlocation" || sorter == "deathlocation") {
-            if (sorter == "birthlocation") {
-                if (el.attr("data-order") == "s2b") {
-                    sorter = "birthlocation-reversed";
-                    el.attr("data-order", "b2s");
-                    rows = PeopleTable.fillLocations(rows, "-reversed");
-                } else {
-                    el.attr("data-order", "s2b");
-                    rows = PeopleTable.fillLocations(rows, "");
-                }
-            } else if (sorter == "deathlocation") {
-                if (el.attr("data-order") == "s2b") {
-                    sorter = "deathlocation-reversed";
-                    el.attr("data-order", "b2s");
-                    rows = PeopleTable.fillLocations(rows, "-reversed");
-                } else {
-                    el.attr("data-order", "s2b");
-                    rows = PeopleTable.fillLocations(rows, "");
-                }
-            }
-            rows.sort(function (a, b) {
-                if ($(b).data(sorter) == "") {
-                    return true;
-                }
-                return $(a).data(sorter).localeCompare($(b).data(sorter));
-            });
-        } else if (isNaN(rows.data(sorter))) {
+        const locationSort = sortFieldName == "birthlocation" || sortFieldName == "deathlocation";
+        // For location sorts, determine whether we sort on back-to-front or front-to-back names
+        if (locationSort && el.attr("data-flow") == "b2f") sortFieldName = `${sortFieldName}-reversed`;
+        // If the column wasn't sorted before, we sort it ascending, otherwise we flip the direction of sort
+        if (locationSort || hasNaN(rows, sortFieldName)) {
             if (el.attr("data-order") == "asc") {
+                // Sort descending
                 rows.sort(function (a, b) {
-                    if ($(a).data(sorter) == "") {
-                        return true;
-                    }
-                    return $(b).data(sorter).toString().localeCompare($(a).data(sorter));
+                    return collator.compare($(b).data(sortFieldName), $(a).data(sortFieldName));
                 });
                 el.attr("data-order", "desc");
             } else {
+                // Sort ascending
                 rows.sort(function (a, b) {
-                    if ($(b).data(sorter) == "") {
-                        return true;
-                    }
-                    return $(a).data(sorter).toString().localeCompare($(b).data(sorter));
+                    return collator.compare($(a).data(sortFieldName), $(b).data(sortFieldName));
                 });
                 el.attr("data-order", "asc");
             }
         } else {
+            // We're sorting only numeric values
             if (el.attr("data-order") == "asc") {
-                rows.sort((a, b) => ($(b).data(sorter) > $(a).data(sorter) ? 1 : -1));
+                // Sort descending
+                rows.sort((a, b) => $(b).data(sortFieldName) - $(a).data(sortFieldName));
                 el.attr("data-order", "desc");
             } else {
-                rows.sort((a, b) => ($(a).data(sorter) > $(b).data(sorter) ? 1 : -1));
+                // Sort ascending
+                rows.sort((a, b) => $(a).data(sortFieldName) - $(b).data(sortFieldName));
                 el.attr("data-order", "asc");
             }
         }
+        // Rewrite the table rows in the new order
         aTable.find("tbody").append(rows);
-        rows.each(function () {
-            const toBottom = ["", "00000000"];
-            if (toBottom.includes(el.data(sorter))) {
-                aTable.find("tbody").append(el);
-            }
-        });
-        aTable.find("tr.main").prependTo(aTable.find("tbody"));
+
+        function hasNaN(rows, sorter) {
+            let hasNaN = false;
+            rows.each(function () {
+                if (isNaN($(this).data(sorter))) {
+                    hasNaN = true;
+                    return false; // Stops further iteration
+                }
+            });
+            return hasNaN;
+        }
     }
 
     static async addWideTableButton() {
@@ -894,23 +918,6 @@ export class PeopleTable {
         return wtRef.startsWith("Private")
             ? text
             : `<a target='_blank' href='https://www.wikitree.com/index.php?title=Special:NetworkFeed&who=${wtRef}'>${text}</a>`;
-    }
-
-    static tableCaption() {
-        const person = window.people.get(window.rootId);
-        let displName;
-        if (person) {
-            displName = new PersonName(person).withParts(CC7Utils.WANTED_NAME_PARTS);
-        } else {
-            displName = wtViewRegistry.getCurrentWtId();
-        }
-        let caption = "";
-        if ($("#cc7Container").hasClass("degreeView")) {
-            caption = `Degree ${window.cc7Degree} connected people for ${displName}`;
-        } else {
-            caption = `CC${window.cc7Degree} for ${displName}`;
-        }
-        return caption;
     }
 
     static showMissingLinksCheckboxes() {
@@ -2327,5 +2334,25 @@ export class PeopleTable {
     static makeSheetname() {
         const prefix = $("#cc7Container").hasClass("degreeView") ? "CC_Deg" : "CC";
         return `${prefix}${window.cc7Degree}_${wtViewRegistry.getCurrentWtId()}`;
+    }
+
+    static setParameters(params) {
+        PeopleTable.PARAMS = params;
+        PeopleTable.ACTIVE_VIEW = PeopleTable.PARAMS.cc7View;
+        console.log(PeopleTable.ACTIVE_VIEW);
+    }
+
+    static resetHeader() {
+        $("#degreesTable").show();
+        $("#wideTableButton").show();
+        $("#savePeople").show();
+        $("#loadButton").show();
+        $("#cc7csv").show();
+        $("#cc7excel").show();
+        $("#getExtraDegrees").show();
+        $("#getDegreeButton").show();
+        $("#cc7Subset").show();
+        $("#ancReport").show();
+        $("label[for='getExtraDegrees']").show();
     }
 }

@@ -11,7 +11,7 @@ import { BioCheckPerson } from "../../../lib/biocheck-api/src/BioCheckPerson.js"
 import { Biography } from "../../../lib/biocheck-api/src/Biography.js";
 import { PeopleTable } from "./PeopleTable.js";
 import { Settings } from "./Settings.js";
-import { CC7Utils } from "./Utils.js";
+import { CC7Utils } from "./CC7Utils.js";
 import { Utils } from "../../shared/Utils.js";
 
 export class CC7 {
@@ -58,18 +58,19 @@ export class CC7 {
             </li>
             <li>The <b>Hierarchy View</b> shows the hierarchial relationships between the people in the list.</li>
             <li>The <b>List View</b> provides a way by which you can look at particular surnames amongst your relatives.</li>
+            <li>The <b>Stats View</b> provides generational statistics for the currently loaded data, similar to those of
+                the Generational Statistics App, but being applied to CC degrees. Note that some of the statistics are not
+                all that useful unless the Ancestors/Descendants only filters are applied.
+            </li>
         </ul>
         <p>Below are some tips related to each view.</p>
         <h3>Table View</h3>
         <h4>Sorting the Table</h4>
         <ul>
             <li>Sort any column by clicking the header. Click again to reverse the sorting.</li>
-            <li>
-                Sort by Created/Modified to see new additions.
-            </li>
-            <li>
-                The location column sort toggles between sorting Town &rarr; Country or Country &rarr; Town on each click
-                on location header.
+            <li>Sort by Created/Modified to see new additions.</li>
+            <li>The names in the location columns can be reversed (and subsequently re-sorted) by clicking the ↻ symbol
+                in the header.
             </li>
         </ul>
         <h4>Scrolling the Wide Table</h4>
@@ -246,9 +247,11 @@ export class CC7 {
     static RELATIONSHIP_DB_VERSION = 2;
     static RELATIONSHIP_STORE_NAME = "relationship2";
 
-    constructor(selector, startId) {
+    constructor(selector, startId, params) {
         this.startId = startId;
         this.selector = selector;
+        this.params = params;
+        PeopleTable.setParameters(params);
         Settings.restoreSettings();
         $(selector).html(
             `<div id="${CC7Utils.CC7_CONTAINER_ID}" class="cc7Table">
@@ -291,10 +294,19 @@ export class CC7 {
             </div>`
         );
 
-        const cc7Degree = Utils.getCookie("w_cc7Degree");
-        if (cc7Degree && cc7Degree > 0 && cc7Degree <= CC7.MAX_DEGREE) {
-            CC7.handleDegreeChange(cc7Degree);
+        // handle "degrees" parameter
+        if (params["degrees"]) {
+            const cc7Degree = Number(params["degrees"]);
+            if (cc7Degree && cc7Degree > 0 && cc7Degree <= CC7.MAX_DEGREE) {
+                CC7.handleDegreeChange(cc7Degree);
+            }
+        } else {
+            const cc7Degree = Utils.getCookie("w_cc7Degree");
+            if (cc7Degree && cc7Degree > 0 && cc7Degree <= CC7.MAX_DEGREE) {
+                CC7.handleDegreeChange(cc7Degree);
+            }
         }
+
         $("#cc7Degree")
             .off("change")
             .on("change", function () {
@@ -440,9 +452,6 @@ export class CC7 {
     static handleDegreeChange(wantedDegree) {
         const newDegree = Math.min(CC7.MAX_DEGREE, wantedDegree);
         CC7.updateButtonLabels(newDegree);
-        // const getExtra = document.getElementById("getExtraDegrees").checked;
-        // $("#getPeopleButton").text(`Get CC${newDegree}${getExtra ? "+1" : ""}`);
-        // $("#getDegreeButton").text(`Get Degree ${newDegree}${getExtra ? "±1" : ""} Only`);
         if (newDegree > 3) {
             CC7.LONG_LOAD_WARNING =
                 "Loading larger degrees may take a while, especially with Bio Check enabled " +
@@ -548,7 +557,7 @@ export class CC7 {
                     )
                 );
                 CC7.buildDegreeTableData(degreeCounts, theDegree);
-                PeopleTable.addPeopleTable(PeopleTable.tableCaption());
+                PeopleTable.addPeopleTable(CC7Utils.tableCaption());
                 $("#cc7Subset").prop("disabled", true);
             }
             $("#getPeopleButton").prop("disabled", false);
@@ -905,9 +914,9 @@ export class CC7 {
                 )
             );
             CC7.buildDegreeTableData(degreeCounts, 1);
-            console.log(window.people);
+            // console.log(window.people);
             this.addRelationships();
-            PeopleTable.addPeopleTable(PeopleTable.tableCaption());
+            PeopleTable.addPeopleTable(CC7Utils.tableCaption());
         }
 
         $("#getPeopleButton").prop("disabled", false);
@@ -919,7 +928,7 @@ export class CC7 {
     }
 
     static addRelationships() {
-        const rootName = $("#wt-id-text").val().trim();
+        const rootName = Utils.getTreeAppWtId();
         let rootId = null;
         const familyMapEntries = [];
         for (let [key, value] of window.people.entries()) {
@@ -952,11 +961,11 @@ export class CC7 {
         const loggedInUser = window.wtViewRegistry.session.lm.user.name;
         const loggedInUserId = window.wtViewRegistry.session.lm.user.id;
 
-        const worker = new Worker("views/cc7/js/relationshipWorker.js");
+        const worker = new Worker(new URL("relationshipWorker.js", import.meta.url));
 
         const $this = this;
         worker.onmessage = function (event) {
-            console.log("Worker returned:", event.data);
+            // console.log("Worker returned:", event.data);
             if (event.data.type === "completed") {
                 if ($("#cc7PBFilter").data("select2")) {
                     $("#cc7PBFilter").select2("destroy");
@@ -1015,10 +1024,10 @@ export class CC7 {
             });
 
         let connectionEntries = dbEntries.map((entry) => ({
-            key: entry.key,
-            userId: entry.value.userId,
-            id: entry.value.id,
-            distance: entry.value.distance,
+            theKey: entry.theKey,
+            userId: entry.userId,
+            id: entry.id,
+            distance: entry.distance,
         }));
 
         this.openDatabase(CC7.CONNECTION_DB_NAME, CC7.CONNECTION_DB_VERSION, CC7.CONNECTION_STORE_NAME)
@@ -1039,8 +1048,12 @@ export class CC7 {
 
             request.onupgradeneeded = function (event) {
                 const db = event.target.result;
+                db.onversionchange = function () {
+                    db.close();
+                    alert(`The ${dbName} database is outdated and needs a version upgrade. Please reload this page.`);
+                };
                 if (!db.objectStoreNames.contains(storeName)) {
-                    db.createObjectStore(storeName, { keyPath: "key" });
+                    db.createObjectStore(storeName, { keyPath: "theKey" });
                 }
             };
 
@@ -1048,6 +1061,17 @@ export class CC7 {
                 resolve(event.target.result);
             };
 
+            request.onblocked = function () {
+                // This event shouldn't trigger if onversionchange was handled correctly above. However, it can happen
+                // if the other tabs/pages are still running code that does not have the onversionchange code above.
+                // It means that there's another open connection to the same database
+                // and it wasn't closed after db.onversionchange triggered for it.
+                alert(
+                    "Access to the ${dbName} database is blocked because other open tabs/pages to WikiTree are not " +
+                        "successfully closing their database connections. Unfortunately the only way to correct this is " +
+                        "to restart your browser, or to close all those other tabs/pages and then to reload this page."
+                );
+            };
             request.onerror = function (event) {
                 reject(event.target.error);
             };
@@ -1060,7 +1084,7 @@ export class CC7 {
             const objectStore = transaction.objectStore(storeName);
 
             data.forEach((item) => {
-                const getRequest = objectStore.get(item.key);
+                const getRequest = objectStore.get(item.theKey);
                 getRequest.onsuccess = function (event) {
                     const existing = event.target.result;
 
@@ -1068,13 +1092,9 @@ export class CC7 {
                     const updatedItem = {
                         ...existing,
                         ...item,
-                        value: {
-                            ...existing?.value,
-                            ...item.value,
-                            relationship: checkRelationship
-                                ? item.value.relationship || existing?.value.relationship
-                                : item.value?.relationship || existing?.value?.relationship,
-                        },
+                        relationship: checkRelationship
+                            ? item.relationship || existing?.relationship
+                            : item?.relationship || existing?.relationship,
                     };
 
                     const request = objectStore.put(updatedItem);
@@ -1111,7 +1131,7 @@ export class CC7 {
             }
             const row = clone.querySelector(`tr[data-id="${result.personId}"]`);
             if (row) {
-                row.setAttribute("data-relation", result.relationship.abbr);
+                row.setAttribute("data-relation", result?.relationship?.abbr || "");
                 const relationCell = row.querySelector("td.relation");
                 if (relationCell) {
                     relationCell.textContent = result.relationship.abbr;
@@ -1455,6 +1475,8 @@ export class CC7 {
                 "#hierarchyView",
                 "#lanceTable",
                 "#peopleTable",
+                "#statsView",
+                "#missingLinksTable",
                 "#tooBig",
                 ".viewButton",
                 "#wideTableButton",
@@ -1475,7 +1497,7 @@ export class CC7 {
                     [
                         window.rootId,
                         window.cc7Degree,
-                        $(wtViewRegistry.WT_ID_TEXT).val(),
+                        Utils.getTreeAppWtId(),
                         $(`#${CC7Utils.CC7_CONTAINER_ID}`).hasClass("degreeView"),
                     ],
                     ...window.people.entries(),
@@ -1586,7 +1608,7 @@ export class CC7 {
             }
             Utils.hideShakingTree();
             CC7.addRelationships();
-            PeopleTable.addPeopleTable(PeopleTable.tableCaption());
+            PeopleTable.addPeopleTable(CC7Utils.tableCaption());
             $(`#${CC7Utils.CC7_CONTAINER_ID} #cc7Subset`).before(
                 $(
                     "<table id='degreesTable'>" +

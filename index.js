@@ -50,7 +50,7 @@ window.addEventListener("DOMContentLoaded", (event) => {
         "cctree": new CCTView(),
         "wt-dynamic-tree": new WikiTreeDynamicTreeViewer(),
         "timeline": new TimelineView(),
-        "fanchart": new FanChartView(),        
+        "fanchart": new FanChartView(),
         "fandoku": new FandokuView(),
         "fractal": new FractalView(),
         "ahnentafel": new AhnentafelView(),
@@ -67,10 +67,12 @@ window.addEventListener("DOMContentLoaded", (event) => {
         "xtree": new XTreeView(),
         "familyGroupApp": new FamilyGroupAppView(),
         "superbig": new SuperBigFamView(),
-
+        "slippyTree": new SlippyTree(),
         "stats": new StatsView(),
         "wtPlusMaps": new WtPlusMaps(),
         "oneNameTrees": new OneNameTrees(),
+        "ancestorsCemeteries": new AncestorsCemeteriesView(),
+        "heritage": new HeritageView(),
         "dnaroutes": new DNARoutesView(),
     };
 
