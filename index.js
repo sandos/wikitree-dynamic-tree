@@ -71,6 +71,7 @@ window.addEventListener("DOMContentLoaded", (event) => {
         "stats": new StatsView(),
         "wtPlusMaps": new WtPlusMaps(),
         "oneNameTrees": new OneNameTrees(),
+        "dnaroutes": new DNARoutesView(),
     };
 
     for (let key in views) {
