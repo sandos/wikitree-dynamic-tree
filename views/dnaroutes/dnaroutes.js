@@ -6,7 +6,9 @@ window.DNARoutesView = class DNARoutesView extends View {
 
     other_person = "";
     our_id = "";
-    cont_sel = "";
+    static cont_sel = "";
+
+    static roots = [];
 
     constructor() {
         super();
@@ -22,6 +24,7 @@ window.DNARoutesView = class DNARoutesView extends View {
 
     static addPeople(profiles) {
         let nrAdded = 0;
+        let alreadyExisting = 0;
         let oldestBirth = 9999;
         for (const person of profiles) {
             //What does the + do?
@@ -48,6 +51,7 @@ window.DNARoutesView = class DNARoutesView extends View {
                 }
                 DNARoutesView.people.set(id, person);
             } else {
+                alreadyExisting++;
                 console.log(`Already added ${id}`);
             }
         }
@@ -76,21 +80,26 @@ window.DNARoutesView = class DNARoutesView extends View {
         if ($('div#oldest-birth')) {
             $('div#oldest-birth').innerText = oldestBirth.toString();
         }
+        if ($('div#duped')) {
+            $('div#duped').innerText = alreadyExisting.toString();
+        }
         console.log(`New work left to do: ${work.size} and added ${added_work}`);
 
-        console.log(`Other is: ${this.other_person}`)
+        console.log(`Other is: ${this.other_person}`);
+        console.log(`Our_ID is: ${this.our_id}`);
+        console.log(this.cont_sel);
         if(this.other_person) {
             //Yeah, we can do shit!
-            console.log(this.cont_sel);
-            document.querySelector(cont_sel).innerText = `Ok, path between ${this.person_id} and ${this.other_person}`;
-
+            document.querySelector(DNARoutesView.cont_sel).innerText = `Ok, path between ${this.person_id} and ${this.other_person}`;
         }
+        document.querySelector(DNARoutesView.cont_sel).innerText = this.roots.toString();
+
     }
 
     async init(container_selector, person_id) {
         this.our_id = person_id;
-        this.cont_sel = container_selector;
-        console.log(person_id);
+        DNARoutesView.cont_sel = container_selector;
+        console.log("§§§§§§§§§§§§§§§§§§§§§ INIT §§§§§§§§§§§§§§§§§§");
         const personData = await WikiTreeAPI.getPerson(DNARoutesView.APP_ID, person_id, ["FirstName"]);
         console.log(personData);
         const name = personData["_data"]["FirstName"];
@@ -109,6 +118,7 @@ window.DNARoutesView = class DNARoutesView extends View {
         </div>
         <div style="display:flex" id="summary-info">
             Profiles total: <div id="total-persons">N/A</div>&nbsp;
+            Profiles duped: <div id="duped">N/A</div>&nbsp;
             Profiles not finished: <div id="unfinished">N/A</div>&nbsp;
             Oldest birthdate: <div id="oldest-birth">N/A</div>&nbsp;
         </div>
@@ -121,10 +131,14 @@ window.DNARoutesView = class DNARoutesView extends View {
 
         $('#our-go').on('click', () => {
             const $ = document.querySelector.bind(document);
-            console.log($('input#other_person').value);
-            this.getProfiles($('#other_person').value);
-            this.other_person = $('#other_person').value;
-            console.log(`Set other: ${this.other_person}`)
+            let personId = $('input#other_person').value;
+            console.log(personId);
+            this.getProfiles(personId);
+            this.other_person = personId;
+            console.log(`Set other: ${this.other_person}`);
+            DNARoutesView.roots.push(personId);
+
+            //document.querySelector(container_selector).innerText = `Hello, ${this.roots}`;
         });
     }
 
