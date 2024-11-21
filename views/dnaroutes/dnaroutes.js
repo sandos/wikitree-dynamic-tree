@@ -8,7 +8,7 @@ window.DNARoutesView = class DNARoutesView extends View {
     our_id = "";
     static cont_sel = "";
 
-    static roots = [];
+    static roots = new Set([]);
 
     constructor() {
         super();
@@ -22,7 +22,7 @@ window.DNARoutesView = class DNARoutesView extends View {
         };
     }
 
-    static addPeople(profiles) {
+    static addPeople(profiles, personId) {
         let nrAdded = 0;
         let alreadyExisting = 0;
         let oldestBirth = 9999;
@@ -92,7 +92,9 @@ window.DNARoutesView = class DNARoutesView extends View {
             //Yeah, we can do shit!
             document.querySelector(DNARoutesView.cont_sel).innerText = `Ok, path between ${this.person_id} and ${this.other_person}`;
         }
-        document.querySelector(DNARoutesView.cont_sel).innerText = this.roots.toString();
+        DNARoutesView.roots.add(personId);
+        console.log(`Pushed person: ${personId} ${DNARoutesView.roots.length}`)
+        document.querySelector(DNARoutesView.cont_sel).innerText = Array.from(DNARoutesView.roots).join(',');
 
     }
 
@@ -130,14 +132,17 @@ window.DNARoutesView = class DNARoutesView extends View {
         this.getProfiles(person_id);
 
         $('#our-go').on('click', () => {
+
             const $ = document.querySelector.bind(document);
             let personId = $('input#other_person').value;
+            if(DNARoutesView.roots.has(personId)) {
+                console.log("Already did this!");
+                return;
+            }
             console.log(personId);
             this.getProfiles(personId);
             this.other_person = personId;
             console.log(`Set other: ${this.other_person}`);
-            DNARoutesView.roots.push(personId);
-
             //document.querySelector(container_selector).innerText = `Hello, ${this.roots}`;
         });
     }
@@ -169,7 +174,17 @@ window.DNARoutesView = class DNARoutesView extends View {
                 console.log(result[0].status);
                 console.log(result[0].people);
                 console.log(Object.values(result[0].people).length);
-                DNARoutesView.addPeople(Object.values(result[0].people));
+                const $ = document.querySelector.bind(document);
+
+                let use_id = person_id;
+                let foo = parseInt(person_id, 10);
+                if(!isNaN(foo)) {
+                    if ($('input#wt-id-text')) {
+                        console.log(`Val: ${$('input#wt-id-text').value}`);
+                        use_id = $('input#wt-id-text').value;
+                    }
+                }
+                DNARoutesView.addPeople(Object.values(result[0].people), use_id);
         } catch(error) {
             console.warn(`Error: ${error}`);
         }
